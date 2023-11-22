@@ -1,5 +1,13 @@
+use glium::{Display, glutin::surface::WindowSurface};
+
+#[derive(Copy, Clone)]
+struct Vertex {
+    position: [f64; 3],
+}
+implement_vertex!(Vertex, position);
+
 #[derive(Debug, Clone, Copy)]
-struct Position {
+pub struct Position {
     x: f64,
     y: f64,
     z: f64
@@ -12,7 +20,7 @@ impl Default for Position {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Size {
+pub struct Size {
     x: f64,
     y: f64,
     z: f64
@@ -24,7 +32,7 @@ impl Default for Size {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy)] 
 struct Rotation {
 
 }
@@ -63,11 +71,44 @@ trait Object3D {
 }
 
 impl dyn Object3D {
+    fn view_matrix(position: &[f32; 3], direction: &[f32; 3], up: &[f32; 3]) -> [[f32; 4]; 4] {
+        let f = {
+            let f = direction;
+            let len = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
+            let len = len.sqrt();
+            [f[0] / len, f[1] / len, f[2] / len]
+        };
+    
+        let s = [up[1] * f[2] - up[2] * f[1],
+                 up[2] * f[0] - up[0] * f[2],
+                 up[0] * f[1] - up[1] * f[0]];
+    
+        let s_norm = {
+            let len = s[0] * s[0] + s[1] * s[1] + s[2] * s[2];
+            let len = len.sqrt();
+            [s[0] / len, s[1] / len, s[2] / len]
+        };
+    
+        let u = [f[1] * s_norm[2] - f[2] * s_norm[1],
+                 f[2] * s_norm[0] - f[0] * s_norm[2],
+                 f[0] * s_norm[1] - f[1] * s_norm[0]];
+    
+        let p = [-position[0] * s_norm[0] - position[1] * s_norm[1] - position[2] * s_norm[2],
+                 -position[0] * u[0] - position[1] * u[1] - position[2] * u[2],
+                 -position[0] * f[0] - position[1] * f[1] - position[2] * f[2]];
+    
+        [
+            [s_norm[0], u[0], f[0], 0.0],
+            [s_norm[1], u[1], f[1], 0.0],
+            [s_norm[2], u[2], f[2], 0.0],
+            [p[0], p[1], p[2], 1.0],
+        ]
+    }
 
 }
 
 #[derive(Default)]
-struct Cube{
+pub struct Cube{
     transform: Transform,
     size: Size
 }
@@ -75,6 +116,10 @@ struct Cube{
 impl Cube {
     pub fn new(position: Position, size: Size) -> Self {
         Self { transform: Transform::new(position, Rotation::default()), size, .. Default::default() }
+    }
+
+    pub fn render(&mut self, frame: &glium::Frame, _display: &Display<WindowSurface>, ) {
+        println!("{:?}", self.get_position())
     }
 }
 
