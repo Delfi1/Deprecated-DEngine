@@ -6,6 +6,7 @@ use glium::{
     backend::glutin::SimpleWindowBuilder,
     Surface
 };
+use objects::Teapod;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::EventLoop
@@ -13,9 +14,8 @@ use winit::{
 
 mod objects;
 use crate::objects::Object3D;
-mod teapot;
 
-fn view_matrix(position: &[f64; 3], direction: &[f64; 3], up: &[f64; 3]) -> [[f64; 4]; 4] {
+fn view_matrix(position: &[f32; 3], direction: &[f32; 3], up: &[f32; 3]) -> [[f32; 4]; 4] {
     let f = {
         let f = direction;
         let len = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
@@ -59,7 +59,7 @@ fn main() {
 
     _window.set_min_inner_size(Some(winit::dpi::LogicalSize::new(350.0, 250.0)));
 
-    let test_cube = objects::Cube::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+    let teapod = Teapod::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]);
 
     event_loop.run(move |event, _, control_flow| {
         control_flow.set_poll();
@@ -81,37 +81,17 @@ fn main() {
                 let mut frame = _display.draw();
                 frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
 
-                let (width, height) = (_window.inner_size().width, _window.inner_size().height);
-                //println!("{width}, {height}");
                 let screen = [
                     [0.01, 0.0, 0.0, 0.0],
                     [0.0, 0.01, 0.0, 0.0],
                     [0.0, 0.0, 0.01, 0.0],
-                    [0.0, 0.0, 0.0, 1.0f64]
+                    [0.0, 0.0, 2.0, 1.0f32]
                 ];
 
-                // Глобальный свет сцены
-                let global_light = [-1.0, 0.4, 0.9f64];
+                let view = view_matrix(&[0.0, 0.0, 0.0], &[0.0, 0.0, 0.0], &[0.0, 0.0, 0.0]);
 
-                let view = view_matrix(&[2.0, -1.0, 1.0], &[-2.0, 1.0, 1.0], &[0.0, 1.0, 0.0]);
-                
-                let perspective = {
-                    let (width, height) = frame.get_dimensions();
-                    let aspect_ratio = height as f64 / width as f64;
-
-                    let fov: f64 = 3.141592 / 3.0;
-                    let zfar = 1024.0;
-                    let znear = 0.1;
-
-                    let f = 1.0 / (fov / 2.0).tan();
-
-                    [
-                        [f *   aspect_ratio   ,    0.0,              0.0              ,   0.0],
-                        [         0.0         ,     f ,              0.0              ,   0.0],
-                        [         0.0         ,    0.0,  (zfar+znear)/(zfar-znear)    ,   1.0],
-                        [         0.0         ,    0.0, -(2.0*zfar*znear)/(zfar-znear),   0.0],
-                    ]
-                };
+                // Направление света.
+                let light = [-1.0, 0.4, 0.9f32];
 
                 let params = glium::DrawParameters {
                     depth: glium::Depth {
@@ -120,9 +100,27 @@ fn main() {
                         .. Default::default()
                     },
                     .. Default::default()
+                };                
+
+                let perspective = {
+                    let (width, height) = frame.get_dimensions();
+                    let aspect_ratio = height as f32 / width as f32;
+                
+                    let fov: f32 = 3.141592 / 3.0;
+                    let zfar = 1024.0;
+                    let znear = 0.1;
+                
+                    let f = 1.0 / (fov / 2.0).tan();
+                
+                    [
+                        [f *   aspect_ratio   ,    0.0,              0.0              ,   0.0],
+                        [         0.0         ,     f ,              0.0              ,   0.0],
+                        [         0.0         ,    0.0,  (zfar+znear)/(zfar-znear)    ,   1.0],
+                        [         0.0         ,    0.0, -(2.0*zfar*znear)/(zfar-znear),   0.0],
+                    ]
                 };
 
-                test_cube.render(&_display, &mut frame, screen, view, perspective, global_light, &params);
+                teapod.render(&_display, &mut frame, screen, view, perspective, light, &params);
 
                 // Окончание отрисовки кадра
                 frame.finish().unwrap();
