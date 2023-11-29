@@ -15,7 +15,7 @@ use winit::{
 mod objects;
 use crate::objects::Object3D;
 
-fn view_matrix(position: &[f32; 3], direction: &[f32; 3], up: &[f32; 3]) -> [[f32; 4]; 4] {
+pub fn view_matrix(position: &[f32; 3], direction: &[f32; 3], up: &[f32; 3]) -> [[f32; 4]; 4] {
     let f = {
         let f = direction;
         let len = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
@@ -81,37 +81,18 @@ fn main() {
                 let mut frame = _display.draw();
                 frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
 
-                let screen = [
-                    [0.01, 0.0, 0.0, 0.0],
-                    [0.0, 0.01, 0.0, 0.0],
-                    [0.0, 0.0, 0.01, 0.0],
-                    [0.0, 0.0, 2.0, 1.0f32]
-                ];
-
-                let view = view_matrix(&[0.0, 0.0, 0.0], &[0.0, 0.0, 0.0], &[0.0, 0.0, 0.0]);
-
-                // Направление света.
-                let light = [-1.0, 0.4, 0.9f32];
-
-                let params = glium::DrawParameters {
-                    depth: glium::Depth {
-                        test: glium::draw_parameters::DepthTest::IfLess,
-                        write: true,
-                        .. Default::default()
-                    },
-                    .. Default::default()
-                };                
+                let camera_view = view_matrix(&[2.0, -1.0, 1.0], &[-2.0, 1.0, 1.0], &[0.0, 1.0, 0.0]);
 
                 let perspective = {
                     let (width, height) = frame.get_dimensions();
                     let aspect_ratio = height as f32 / width as f32;
-                
+
                     let fov: f32 = 3.141592 / 3.0;
                     let zfar = 1024.0;
                     let znear = 0.1;
-                
+
                     let f = 1.0 / (fov / 2.0).tan();
-                
+
                     [
                         [f *   aspect_ratio   ,    0.0,              0.0              ,   0.0],
                         [         0.0         ,     f ,              0.0              ,   0.0],
@@ -120,7 +101,19 @@ fn main() {
                     ]
                 };
 
-                teapod.render(&_display, &mut frame, screen, view, perspective, light, &params);
+                let light = [-1.0, 0.4, 0.9f32];
+
+                let params = glium::DrawParameters {
+                    depth: glium::Depth {
+                        test: glium::draw_parameters::DepthTest::IfLess,
+                        write: true,
+                        .. Default::default()
+                    },
+                    //backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
+                    .. Default::default()
+                };
+
+                teapod.render(&_display, &mut frame, camera_view, perspective, light, &params);
 
                 // Окончание отрисовки кадра
                 frame.finish().unwrap();
