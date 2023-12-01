@@ -6,47 +6,20 @@ use glium::{
     backend::glutin::SimpleWindowBuilder,
     Surface
 };
-use objects::Teapod;
+use objects::Object3D;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::EventLoop
 };
 
-mod objects;
-use crate::objects::Object3D;
+mod scenes;
 
-pub fn view_matrix(position: &[f32; 3], direction: &[f32; 3], up: &[f32; 3]) -> [[f32; 4]; 4] {
-    let f = {
-        let f = direction;
-        let len = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
-        let len = len.sqrt();
-        [f[0] / len, f[1] / len, f[2] / len]
-    };
+fn rgba_to_float(red: i64, green: i64, blue: i64, alpha: f64) -> (f32, f32, f32, f32) {
+    let r: f32 = red as f32 / 255.0 as f32;
+    let g: f32 = green as f32 / 255.0 as f32;
+    let b: f32 = blue as f32 / 255.0 as f32;
 
-    let s = [up[1] * f[2] - up[2] * f[1],
-             up[2] * f[0] - up[0] * f[2],
-             up[0] * f[1] - up[1] * f[0]];
-
-    let s_norm = {
-        let len = s[0] * s[0] + s[1] * s[1] + s[2] * s[2];
-        let len = len.sqrt();
-        [s[0] / len, s[1] / len, s[2] / len]
-    };
-
-    let u = [f[1] * s_norm[2] - f[2] * s_norm[1],
-             f[2] * s_norm[0] - f[0] * s_norm[2],
-             f[0] * s_norm[1] - f[1] * s_norm[0]];
-
-    let p = [-position[0] * s_norm[0] - position[1] * s_norm[1] - position[2] * s_norm[2],
-             -position[0] * u[0] - position[1] * u[1] - position[2] * u[2],
-             -position[0] * f[0] - position[1] * f[1] - position[2] * f[2]];
-
-    [
-        [s_norm[0], u[0], f[0], 0.0],
-        [s_norm[1], u[1], f[1], 0.0],
-        [s_norm[2], u[2], f[2], 0.0],
-        [p[0], p[1], p[2], 1.0],
-    ]
+    return (r, g, b, alpha as f32);
 }
 
 fn main() {
@@ -58,8 +31,6 @@ fn main() {
         .build(&event_loop);
 
     _window.set_min_inner_size(Some(winit::dpi::LogicalSize::new(350.0, 250.0)));
-
-    let teapod = Teapod::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]);
 
     event_loop.run(move |event, _, control_flow| {
         control_flow.set_poll();
@@ -73,15 +44,13 @@ fn main() {
                 println!("Closing Application");
                 control_flow.set_exit();
             },
-            Event::MainEventsCleared => {
+            Event::RedrawEventsCleared => {
                 _window.request_redraw();
             },
             Event::RedrawRequested(_) => {
                 // Отрисовка кадра
                 let mut frame = _display.draw();
-                frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
-
-                let camera_view = view_matrix(&[2.0, -1.0, 1.0], &[-2.0, 1.0, 1.0], &[0.0, 1.0, 0.0]);
+                frame.clear_color_and_depth(rgba_to_float(18, 18, 24, 1.0), 1.0);
 
                 let perspective = {
                     let (width, height) = frame.get_dimensions();
@@ -101,7 +70,7 @@ fn main() {
                     ]
                 };
 
-                let light = [-1.0, 0.4, 0.9f32];
+                let global_light = [-1.0, 0.4, 0.9f32];
 
                 let params = glium::DrawParameters {
                     depth: glium::Depth {
@@ -112,8 +81,6 @@ fn main() {
                     //backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
                     .. Default::default()
                 };
-
-                teapod.render(&_display, &mut frame, camera_view, perspective, light, &params);
 
                 // Окончание отрисовки кадра
                 frame.finish().unwrap();

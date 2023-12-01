@@ -24,6 +24,52 @@ pub trait Object3D {
     fn render(&self, _display: &glium::Display<WindowSurface>, _frame: &mut glium::Frame, camera_view: [[f32; 4]; 4], perspective: [[f32; 4]; 4], global_light: [f32; 3], params: &glium::DrawParameters);
 }
 
+pub struct Camera {
+    position: [f32; 3],
+    direction: [f32; 3],
+    up: [f32; 3]
+}
+
+impl Camera {
+    pub fn new(position: [f32; 3], direction: [f32; 3], up: [f32; 3]) -> Self {
+        Camera {position, direction, up}
+    }
+
+    pub fn get_view(&self) -> [[f32; 4]; 4] {
+        let f = {
+            let f = self.direction;
+            let len = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
+            let len = len.sqrt();
+            [f[0] / len, f[1] / len, f[2] / len]
+        };
+    
+        let s = [self.up[1] * f[2] - self.up[2] * f[1],
+                 self.up[2] * f[0] - self.up[0] * f[2],
+                 self.up[0] * f[1] - self.up[1] * f[0]];
+    
+        let s_norm = {
+            let len = s[0] * s[0] + s[1] * s[1] + s[2] * s[2];
+            let len = len.sqrt();
+            [s[0] / len, s[1] / len, s[2] / len]
+        };
+    
+        let u = [f[1] * s_norm[2] - f[2] * s_norm[1],
+                 f[2] * s_norm[0] - f[0] * s_norm[2],
+                 f[0] * s_norm[1] - f[1] * s_norm[0]];
+    
+        let p = [-self.position[0] * s_norm[0] - self.position[1] * s_norm[1] - self.position[2] * s_norm[2],
+                 -self.position[0] * u[0] - self.position[1] * u[1] - self.position[2] * u[2],
+                 -self.position[0] * f[0] - self.position[1] * f[1] - self.position[2] * f[2]];
+    
+        [
+            [s_norm[0], u[0], f[0], 0.0],
+            [s_norm[1], u[1], f[1], 0.0],
+            [s_norm[2], u[2], f[2], 0.0],
+            [p[0], p[1], p[2], 1.0],
+        ]
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 pub struct Cube {
     id: u64,
@@ -183,18 +229,18 @@ impl Object3D for Teapod {
                 "#,
                 fragment: r#"
                 #version 150
-    
+
                 in vec3 v_normal;
                 out vec4 color;
                 uniform vec3 u_light;
-                
+
                 void main() {
                     float brightness = dot(normalize(v_normal), normalize(u_light));
                     vec3 dark_color = vec3(0.6, 0.0, 0.0);
                     vec3 regular_color = vec3(1.0, 0.0, 0.0);
                     color = vec4(mix(dark_color, regular_color, brightness), 1.0);
                 }
-            "#
+                "#
             },
         ).unwrap();
 
@@ -202,7 +248,6 @@ impl Object3D for Teapod {
         let normals = glium::VertexBuffer::new(_display, &teapot::NORMALS).unwrap();
         let indices = glium::IndexBuffer::new(_display, glium::index::PrimitiveType::TrianglesList,
                                             &teapot::INDICES).unwrap();
-
         
         let model = [
             [0.01, 0.0, 0.0, 0.0],
