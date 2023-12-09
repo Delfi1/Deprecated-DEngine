@@ -1,85 +1,70 @@
-#[macro_use]
+use std::time::Instant;
 
 extern crate glium;
 use glium::{
     backend::glutin::SimpleWindowBuilder,
-    Surface
+    Surface,
+    Display,
+    glutin::{surface::WindowSurface, api::egl::display}
 };
 
 extern crate winit;
-use scenes::Camera;
 use winit::{
     event::{Event, WindowEvent},
-    event_loop::{EventLoop, ControlFlow}
+    event_loop::{EventLoop, ControlFlow, self, EventLoopBuilder},
+    window::{Window, self}, dpi::PhysicalSize
 };
-
-use std::time::Instant;
-
-mod scenes;
 
 const TARGET_FPS: u64 = 120;
 
 fn main() {
-    let event_loop = EventLoop::new(); // Главный цикл отрисовки окна
+    // Основной цикл для программы
+    let event_loop = EventLoop::new();
+    // Создаем базовое окно.
+    let (mut window, display) = SimpleWindowBuilder::new().build(&event_loop);
 
-    let (_window, _display) = SimpleWindowBuilder::new()
-        .with_inner_size(700, 500)
-        .with_title("Engine")
-        .build(&event_loop);
+    // Настраиваем Окно
+    window.set_title("DEngine");
+    window.set_inner_size(PhysicalSize::new(700, 500)); // Размер окна
+    window.set_min_inner_size(Some(PhysicalSize::new(350, 250))); // Минимальный размер окна
 
-    _window.set_min_inner_size(Some(winit::dpi::LogicalSize::new(350.0, 250.0)));
-
-    let global_light = [1.4, 0.4, 0.7f32];
-    let global_camera = Camera::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], 1.0, 1.0, 1.0);
-
-    let params = glium::DrawParameters {
-        depth: glium::Depth {
-            test: glium::draw_parameters::DepthTest::IfLess,
-            write: true,
-            .. Default::default()
-        },
-        .. Default::default()
-    };
-
-    let mut current_scene = scenes::Scene::new(global_camera, global_light, params);
-
-    scenes::Cube::new(&mut current_scene, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]);
-
-    event_loop.run(move |event, _target, control_flow| {
-        let start_time = Instant::now();
-        control_flow.set_poll();
+    // Запускаем основной цикл.
+    event_loop.run(move |event, _, control_flow| {
+        let start_time = Instant::now(); 
+        control_flow.set_poll(); 
         control_flow.set_wait();
-    
+
         match event {
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
             } => {
-                println!("Closing Application");
+                println!("Закрытие окна...");
                 control_flow.set_exit();
             },
+            // Отрисовка окна
             Event::RedrawRequested(_) => {
-                // Отрисовка сцены
-                current_scene.render(&_display);
+
+
             },
             _ => ()
         };
-        // FPS 
+
+        // Установка задержки для отрисовки (FPS)
         match *control_flow {
             ControlFlow::Exit => (),
             _ => {
-                _window.request_redraw();
+                window.request_redraw(); // Запрос на отрисовку.
+                let elapsed_time = Instant::now().duration_since(start_time).as_nanos() as u64;
 
-                let elapsed_time = Instant::now().duration_since(start_time).as_millis() as u64;
-    
-                let wait_millis = match 1000 / TARGET_FPS >= elapsed_time {
-                    true => 1000 / TARGET_FPS - elapsed_time,
+                let wait_nanos = match 1_000_000_000 / TARGET_FPS >= elapsed_time {
+                    true => 1_000_000_000 / TARGET_FPS - elapsed_time,
                     false => 0
                 };
-                let new_inst = start_time + std::time::Duration::from_millis(wait_millis);
-                *control_flow = ControlFlow::WaitUntil(new_inst);
+                
+                let new_inst = start_time + std::time::Duration::from_nanos(wait_nanos);
+                *control_flow = ControlFlow::WaitUntil(new_inst); // Ожидание в наносекундах.
             }
         }
     });
-    
 }
