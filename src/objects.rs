@@ -1,4 +1,4 @@
-use glium::{Frame, glutin::surface::WindowSurface, Display, Surface, index::NoIndices, VertexBuffer};
+use glium::{Frame, glutin::surface::WindowSurface, Display, Surface, index::NoIndices, VertexBuffer, DrawParameters};
 
 #[path ="../src/teapot.rs"]
 mod teapot;
@@ -57,6 +57,44 @@ impl Camera {
             [0.0, 0.0, -(2.0*self.zfar*self.znear) / (self.zfar-self.znear), 0.0],
         ]
     }
+
+    fn get_view(&self) -> [[f32; 4]; 4] {
+        let f = {
+            let f = self.direction.get();
+            let len = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
+            let len = len.sqrt();
+            [f[0] / len, f[1] / len, f[2] / len]
+        };
+        
+        let up = [0.0, 1.0, 0.0f32];
+
+        let s = [up[1] * f[2] - up[2] * f[1],
+                 up[2] * f[0] - up[0] * f[2],
+                 up[0] * f[1] - up[1] * f[0]];
+    
+        let s_norm = {
+            let len = s[0] * s[0] + s[1] * s[1] + s[2] * s[2];
+            let len = len.sqrt();
+            [s[0] / len, s[1] / len, s[2] / len]
+        };
+    
+        let u = [f[1] * s_norm[2] - f[2] * s_norm[1],
+                 f[2] * s_norm[0] - f[0] * s_norm[2],
+                 f[0] * s_norm[1] - f[1] * s_norm[0]];
+    
+        let position = self.position.get();
+
+        let p = [-position[0] * s_norm[0] - position[1] * s_norm[1] - position[2] * s_norm[2],
+                 -position[0] * u[0] - position[1] * u[1] - position[2] * u[2],
+                 -position[0] * f[0] - position[1] * f[1] - position[2] * f[2]];
+    
+        [
+            [s_norm[0], u[0], f[0], 0.0],
+            [s_norm[1], u[1], f[1], 0.0],
+            [s_norm[2], u[2], f[2], 0.0],
+            [p[0], p[1], p[2], 1.0],
+        ]
+    }
 }
 
 #[derive(Default)]
@@ -68,13 +106,12 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub fn render_scene(&mut self, display: &Display<WindowSurface>) {
+    pub fn render_scene(&mut self, display: &Display<WindowSurface>, params: &DrawParameters<'_>) {
         let mut frame = display.draw();
         frame.clear_color_and_depth((22.0 / 255.0, 22.0 / 255.0, 29.0 / 255.0, 1.0), 1.0);
         
         for object in &self.objects {
-            println!("{}", object.get_id());
-            object.render(self, display, &mut frame);
+            object.render(self, display, &mut frame, params);
         }
 
         frame.finish().unwrap();
@@ -96,7 +133,7 @@ impl Scene {
 trait Object3D {
     fn get_id(&self) -> u32;
     //fn new(parent_scene: Scene) -> Self where Self: Sized;
-    fn render(&self, _parent_scene: &Scene, _display: &Display<WindowSurface>, _frame: &mut Frame);
+    fn render(&self, _parent_scene: &Scene, _display: &Display<WindowSurface>, _frame: &mut Frame, params: &DrawParameters<'_>);
 }
 
 pub struct Teapot {
@@ -119,7 +156,7 @@ impl Object3D for Teapot {
         self.id
     }
 
-    fn render(&self, _parent_scene: &Scene, _display: &Display<WindowSurface>, _frame: &mut Frame) {
+    fn render(&self, _parent_scene: &Scene, _display: &Display<WindowSurface>, _frame: &mut Frame, params: &DrawParameters<'_>) {
         let model: [[f32; 4]; 4] = [
             [0.01, 0.0, 0.0, 0.0],
             [0.0, 0.01, 0.0, 0.0],
@@ -137,15 +174,17 @@ impl Object3D for Teapot {
 
             in vec3 position;
             in vec3 normal;
-
+            
             out vec3 v_normal;
-
+            
             uniform mat4 perspective;
+            uniform mat4 view;
             uniform mat4 model;
-
+            
             void main() {
-                v_normal = transpose(inverse(mat3(model))) * normal;
-                gl_Position = perspective * model * vec4(position, 1.0);
+                mat4 modelview = view * model;
+                v_normal = transpose(inverse(mat3(modelview))) * normal;
+                gl_Position = perspective * modelview * vec4(position, 1.0);
             }
         "#;
 
@@ -166,20 +205,13 @@ impl Object3D for Teapot {
 
         let program = glium::Program::from_source(_display, vertex_shader_src, fragment_shader_src,
                                                 None).unwrap();
-        
-        let params = glium::DrawParameters {
-            depth: glium::Depth {
-                test: glium::draw_parameters::DepthTest::IfLess,
-                write: true,
-                .. Default::default()
-            },
-            .. Default::default()
-        };
 
         let perspective = _parent_scene.camera.get_perspective(_frame);
 
+        let view = _parent_scene.camera.get_view();
+
         _frame.draw((&positions, &normals), &indices, &program,
-            &glium::uniform! { model: model, perspective: perspective, light: _parent_scene.global_light.get() },
-            &params).unwrap();
+            &glium::uniform! { model: model, perspective: perspective, view: view, light: _parent_scene.global_light.get() },
+            params).unwrap();
     }
 }

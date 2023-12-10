@@ -56,8 +56,18 @@ fn main() {
     let mut current_scene = Scene::default();
     current_scene.set_global_light(Vec3::new(-1.0, 0.4, 0.9));
     
+    let params = glium::DrawParameters {
+        depth: glium::Depth {
+            test: glium::DepthTest::IfLess,
+            write: true,
+            .. Default::default()
+        },
+        backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
+        .. Default::default()
+    };
+
     let fov: f32 = 3.141592 / 3.0;
-    let camera = Camera::new(Vec3::default(), Vec3::default(), fov, 0.1, 1024.0);
+    let camera = Camera::new(Vec3::new(2.0, -1.0, 1.0), Vec3::new(-2.0, 1.0, 1.0), fov, 0.1, 1024.0);
     current_scene.set_camera(camera);
 
     Teapot::new(&mut current_scene, Vec3::default(), Vec3::default());
@@ -94,7 +104,7 @@ fn main() {
             // Отрисовка окна
             Event::RedrawRequested(_) => {
                 // Отрисовка сцены
-                current_scene.render_scene(&display);
+                current_scene.render_scene(&display, &params);
             },
             _ => ()
         };
