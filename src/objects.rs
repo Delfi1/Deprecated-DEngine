@@ -18,6 +18,22 @@ pub struct Vec3 {
     z: f32
 }
 
+impl std::ops::AddAssign for Vec3 {
+    fn add_assign(&mut self, rhs: Self) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+        self.z += rhs.z;
+    }
+}
+
+impl std::ops::Add for Vec3 {
+    type Output = Vec3;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Vec3::new(self.x + rhs.x, self.y + rhs.y, self.z + rhs.z)
+    }
+}
+
 impl Vec3 {
     pub fn new(x: f32, y: f32, z: f32) -> Self {
         Self {x, y, z}
@@ -128,11 +144,19 @@ impl Scene {
     pub fn set_camera(&mut self, camera: Camera) {
         self.camera = camera;
     }
+
+    pub fn get_object(&mut self, id: u32) -> &mut Box<dyn Object3D> {
+        self.objects.first_mut().unwrap()
+    }
 }
 
-trait Object3D {
+pub trait Object3D {
     fn get_id(&self) -> u32;
     //fn new(parent_scene: Scene) -> Self where Self: Sized;
+
+    fn get_position(&self) -> Vec3;
+    fn set_position(&mut self, position: Vec3);
+
     fn render(&self, _parent_scene: &Scene, _display: &Display<WindowSurface>, _frame: &mut Frame, params: &DrawParameters<'_>);
 }
 
@@ -154,6 +178,14 @@ impl Teapot {
 impl Object3D for Teapot {
     fn get_id(&self) -> u32 {
         self.id
+    }
+
+    fn get_position(&self) -> Vec3 {
+        self.position
+    }
+
+    fn set_position(&mut self, position: Vec3) {
+        self.position = position
     }
 
     fn render(&self, _parent_scene: &Scene, _display: &Display<WindowSurface>, _frame: &mut Frame, params: &DrawParameters<'_>) {
@@ -180,11 +212,14 @@ impl Object3D for Teapot {
             uniform mat4 perspective;
             uniform mat4 view;
             uniform mat4 model;
-            
+            uniform vec3 pos;
+
             void main() {
                 mat4 modelview = view * model;
+                
+                vec3 render_position = position + pos;
                 v_normal = transpose(inverse(mat3(modelview))) * normal;
-                gl_Position = perspective * modelview * vec4(position, 1.0);
+                gl_Position = perspective * modelview * vec4(render_position, 1.0);
             }
         "#;
 
@@ -210,8 +245,10 @@ impl Object3D for Teapot {
 
         let view = _parent_scene.camera.get_view();
 
+        let new_position = self.position + Vec3::new(0.0, 0.01, 0.0);
+
         _frame.draw((&positions, &normals), &indices, &program,
-            &glium::uniform! { model: model, perspective: perspective, view: view, light: _parent_scene.global_light.get() },
+            &glium::uniform! { model: model, pos: self.position.get(), perspective: perspective, view: view, light: _parent_scene.global_light.get() },
             params).unwrap();
     }
 }

@@ -67,10 +67,10 @@ fn main() {
     };
 
     let fov: f32 = 3.141592 / 3.0;
-    let camera = Camera::new(Vec3::new(2.0, -1.0, 1.0), Vec3::new(-2.0, 1.0, 1.0), fov, 0.1, 1024.0);
+    let camera = Camera::new(Vec3::new(2.0, 1.0, -2.0), Vec3::new(-2.0, -1.0, 2.0), fov, 0.1, 1024.0);
     current_scene.set_camera(camera);
 
-    Teapot::new(&mut current_scene, Vec3::default(), Vec3::default());
+    Teapot::new(&mut current_scene, Vec3::new(0.0, 0.0, 0.0), Vec3::default());
 
     // Запускаем основной цикл.
     event_loop.run(move |event, _target, control_flow| {
@@ -105,6 +105,8 @@ fn main() {
             Event::RedrawRequested(_) => {
                 // Отрисовка сцены
                 current_scene.render_scene(&display, &params);
+                let position = current_scene.get_object(0).get_position();
+                current_scene.get_object(0).set_position(position + Vec3::new(0.0, 0.5, 0.0));
             },
             _ => ()
         };
