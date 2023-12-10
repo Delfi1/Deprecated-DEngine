@@ -16,7 +16,7 @@ use winit::{
 };
 
 mod objects;
-use objects::{Vec3, Scene};
+use objects::{Vec3, Scene, Camera, Teapot};
 
 mod input;
 use input::Key;
@@ -54,6 +54,13 @@ fn main() {
 
     // Создаем сцену
     let mut current_scene = Scene::default();
+    current_scene.set_global_light(Vec3::new(-1.0, 0.4, 0.9));
+    
+    let fov: f32 = 3.141592 / 3.0;
+    let camera = Camera::new(Vec3::default(), Vec3::default(), fov, 0.1, 1024.0);
+    current_scene.set_camera(camera);
+
+    Teapot::new(&mut current_scene, Vec3::default(), Vec3::default());
 
     // Запускаем основной цикл.
     event_loop.run(move |event, _target, control_flow| {
@@ -99,7 +106,6 @@ fn main() {
                 window.request_redraw(); // Запрос на отрисовку.
                 
                 let wait_nanos = get_delta_time(start_time);
-
                 //println!("{}", wait_nanos);
                 let new_inst = start_time + std::time::Duration::from_nanos(wait_nanos);
                 *control_flow = ControlFlow::WaitUntil(new_inst); // Ожидание в наносекундах.
