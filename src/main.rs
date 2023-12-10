@@ -52,6 +52,12 @@ fn main() {
     let mut f11_bind = Key::new(0.5, VirtualKeyCode::F11);
     let mut f3_bind = Key::new(0.3, VirtualKeyCode::F3);
 
+    // Перемещение камеры
+    let mut w_bind = Key::new(0.0, VirtualKeyCode::W);
+    let mut a_bind = Key::new(0.0, VirtualKeyCode::A);
+    let mut s_bind = Key::new(0.0, VirtualKeyCode::S);
+    let mut d_bind = Key::new(0.0, VirtualKeyCode::D);
+
     // Создаем сцену
     let mut current_scene = Scene::default();
     current_scene.set_global_light(Vec3::new(-1.0, 0.4, 0.9));
@@ -67,10 +73,13 @@ fn main() {
     };
 
     let fov: f32 = 3.141592 / 3.0;
-    let camera = Camera::new(Vec3::new(2.0, 1.0, -2.0), Vec3::new(-2.0, -1.0, 2.0), fov, 0.1, 1024.0);
+    let camera = Camera::new(Vec3::new(10.0, 2.0, 0.0), Vec3::new(-10.0, -2.0, 0.0), fov, 0.1, 1024.0);
     current_scene.set_camera(camera);
 
-    Teapot::new(&mut current_scene, Vec3::new(0.0, 0.0, 0.0), Vec3::default());
+    for z in -5..5 {
+        let position = Vec3::new(0.0, 0.0, z as f32 * 120.0);
+        Teapot::new(&mut current_scene, position, Vec3::default());
+    }
 
     // Запускаем основной цикл.
     event_loop.run(move |event, _target, control_flow| {
@@ -92,6 +101,10 @@ fn main() {
             //println!("OpenGL version: {:?}", display.get_opengl_version_string());
         }
 
+        if w_bind.check_event(&event) {
+            current_scene.get_camera();
+        }
+
         match event {
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
@@ -105,8 +118,6 @@ fn main() {
             Event::RedrawRequested(_) => {
                 // Отрисовка сцены
                 current_scene.render_scene(&display, &params);
-                let position = current_scene.get_object(0).get_position();
-                current_scene.get_object(0).set_position(position + Vec3::new(0.0, 0.5, 0.0));
             },
             _ => ()
         };

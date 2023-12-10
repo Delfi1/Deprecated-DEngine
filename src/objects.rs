@@ -48,7 +48,7 @@ impl Vec3 {
 pub struct Camera {
     position: Vec3,
     direction: Vec3,
-
+    
     fov: f32,
 
     znear: f32,
@@ -141,13 +141,14 @@ impl Scene {
         self.global_light = light;
     }
 
+    pub fn get_camera(&self) -> &Camera {
+        &self.camera
+    }
+
     pub fn set_camera(&mut self, camera: Camera) {
         self.camera = camera;
     }
 
-    pub fn get_object(&mut self, id: u32) -> &mut Box<dyn Object3D> {
-        self.objects.first_mut().unwrap()
-    }
 }
 
 pub trait Object3D {
