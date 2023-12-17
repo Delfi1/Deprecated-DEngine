@@ -1,4 +1,4 @@
-use glium::Frame;
+use glium::{Frame, Surface};
 use glium::{
     backend::glutin::SimpleWindowBuilder,
     uniforms::AsUniformValue
@@ -11,6 +11,8 @@ use serde_json::json;
 use erased_serde::serialize_trait_object;
 
 use winit::dpi::PhysicalSize;
+use winit::event::VirtualKeyCode;
+use winit::window::Fullscreen;
 use winit::{window, event_loop};
 use winit::{
     event::Event,
@@ -29,6 +31,11 @@ use std::{
 
 use std::f32::consts::PI;
 use std::time::Instant;
+
+use self::input::Key;
+
+#[path ="../src/input.rs"]
+mod input;
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Vec3 {
@@ -88,7 +95,7 @@ pub trait Object: erased_serde::Serialize {
     fn set_indicies(&mut self); // 
     fn set_normales(&mut self); // 
 
-    fn render(&self);
+    fn draw(&self);
 }
 
 // Objects
@@ -109,6 +116,14 @@ pub struct World {
 }
 
 impl World {
+    pub fn new() -> &'static mut Self {
+        Box::leak(Box::new( Self { objects: Vec::new() }))
+    }
+
+    fn draw(&mut self, frame: &mut Frame) {
+
+    }
+
     pub fn load(&mut self) {
         //self.object = ...
     }
@@ -117,18 +132,24 @@ impl World {
         let data = json!(self.objects);
         // Self. objects to json
     }
+
+    pub fn add_object(&mut self, object: &'static dyn Object) {
+        self.objects.push(object)
+    }
 }
 
 pub struct Settings {
-    window_size: PhysicalSize<usize>,
-    min_window_size: PhysicalSize<usize>,
+    title: &'static str,
 
-    max_fps: usize
+    window_size: PhysicalSize<u32>,
+    min_window_size: PhysicalSize<u32>,
+
+    max_fps: u32
 }
 
 impl Settings {
-    pub fn new(window_size: PhysicalSize<usize>, min_window_size: PhysicalSize<usize>, max_fps: usize) -> Self {
-        Self {window_size, min_window_size, max_fps}
+    pub fn new(title: &'static str, window_size: PhysicalSize<u32>, min_window_size: PhysicalSize<u32>, max_fps: u32) -> Self {
+        Self {title, window_size, min_window_size, max_fps}
     }
 }
 
@@ -137,13 +158,13 @@ impl Default for Settings {
         let window_size = PhysicalSize::new(700, 500);
         let min_window_size = PhysicalSize::new(350, 250);
 
-        Self { window_size, min_window_size, max_fps: 120 }
+        Self {title: "DEngine", window_size, min_window_size, max_fps: 120 }
     }
 }
 
 pub struct Engine {
     pub camera: Camera,
-    world: Option<World>,
+    world: Option<&'static mut World>,
     pub settings: Settings
 }
 
@@ -157,8 +178,8 @@ impl Engine {
         Box::leak(Box::new(Self {camera, world, settings}))
     }
 
-    fn get_delta_time(&self, start_time: Instant) -> usize {
-        let elapsed_time = Instant::now().duration_since(start_time).as_nanos() as usize;
+    fn get_delta_time(&self, start_time: Instant) -> u32 {
+        let elapsed_time = Instant::now().duration_since(start_time).as_nanos() as u32;
 
         match 1_000_000_000 / self.settings.max_fps >= elapsed_time {
             true => 1_000_000_000 / self.settings.max_fps - elapsed_time,
@@ -166,7 +187,7 @@ impl Engine {
         }
     }
 
-    fn get_fps(delta: usize) -> usize {
+    fn get_fps(&self, delta: u32) -> u32 {
         match delta > 0 {
             true => 1_000_000_000 / delta,
             false => 0
@@ -178,16 +199,47 @@ impl Engine {
 
         let (window, display) = SimpleWindowBuilder::new().build(&event_loop);
 
+        // Настройка окна
+        window.set_title(self.settings.title);
+        window.set_inner_size(self.settings.window_size);
+        window.set_min_inner_size(Some(self.settings.min_window_size));
+
+        let f11_key = Key::new(0.3, VirtualKeyCode::F11);
+
         event_loop.run(move |event, _, control_flow| {
             control_flow.set_wait();
             control_flow.set_poll();
             let start_time = Instant::now();
 
+            // Смена полноэкранного режима 
+            if f11_key.is_pressed(&event) {
+                if window.fullscreen().is_none() {
+                    let mode = window.current_monitor().unwrap().video_modes().next().unwrap();
+                    window.set_fullscreen(Some(Fullscreen::Exclusive(mode)));
+                } else {
+                    window.set_fullscreen(None);
+                }
+            }
+
             match event {
                 Event::WindowEvent {
                     event: WindowEvent::CloseRequested,
                     ..
-                } => control_flow.set_exit(),
+                } => {
+                    println!("Закрытие программы...");
+                    control_flow.set_exit()
+                },
+                Event::RedrawRequested(_) => {
+                    // Создание кадра
+                    let mut frame = display.draw();
+                    frame.clear_color(1.0, 1.0, 1.0, 1.0);
+
+                    if self.world.is_some() {
+                        self.world.as_mut().unwrap().draw(&mut frame);
+                    }
+                    // Завершение отрисовки кадра.
+                    frame.finish().unwrap();
+                }
                 _ => (),
             }
 
@@ -196,20 +248,20 @@ impl Engine {
                 _ => {
                     window.request_redraw(); // Запрос на отрисовку.
                     
-                    let wait_nanos = self.get_delta_time(start_time) as u64;
-                    println!("{}", wait_nanos);
-                    let new_inst = start_time + std::time::Duration::from_nanos(wait_nanos);
+                    let delta = self.get_delta_time(start_time);
+                    
+                    let new_inst = start_time + std::time::Duration::from_nanos(delta as u64);
                     *control_flow = ControlFlow::WaitUntil(new_inst); // Ожидание в наносекундах.
                 }
             }
         });
     }
 
-    pub fn set_world(&mut self, world: Option<World>) {
+    pub fn set_world(&mut self, world: Option<&'static mut World>) {
         self.world = world
     }
 
-    pub fn get_world(&self) -> &Option<World> {
+    pub fn get_world(&self) -> &Option<&'static mut World> {
         &self.world
     }
 }
