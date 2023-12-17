@@ -8,6 +8,7 @@ use glium::{
 extern crate serde;
 use serde::{Serialize, Deserialize};
 use serde_json::json;
+use serde_json::value::Serializer;
 use erased_serde::serialize_trait_object;
 
 use winit::dpi::PhysicalSize;
@@ -21,13 +22,10 @@ use winit::{
     event_loop::EventLoop
 };
 
+use std::fs::File;
+use std::io::prelude::*;
 use std::marker::PhantomData;
 use std::ptr::null;
-use std::{
-    fmt,
-    fs,
-    io, default
-};
 
 use std::f32::consts::PI;
 use std::time::Instant;
@@ -89,8 +87,12 @@ impl Camera {
 // Object Trait
 
 pub trait Object: erased_serde::Serialize {
-    fn set_position(&mut self, positiob: Vec3);
-    fn get_position(&self) -> Vec3;
+    fn new(parent_world: &World, name: &'static str) -> &'static Self where Self: Sized;
+
+    fn get_id(&self) -> usize;
+    
+    fn set_name(&mut self, name: &'static str);
+    fn get_name(&self) -> &'static str;
 
     fn set_indicies(&mut self); // 
     fn set_normales(&mut self); // 
@@ -100,12 +102,46 @@ pub trait Object: erased_serde::Serialize {
 
 // Objects
 
-#[derive(Serialize, Deserialize)]
-struct Cube {
-    position: Vec3,
-    rotation: Vec3,
-    size: Vec3,
+#[derive(Default, Serialize, Deserialize)]
+pub struct Cube {
+    id: usize,
+    name: &'static str,
 
+    pub position: Vec3,
+    pub rotation: Vec3,
+    pub size: Vec3
+}
+
+impl Object for Cube {
+    fn new(parent_world: &World, name: &'static str) -> &'static Self {
+        let raw = Self {id: parent_world.objects.len(), name, ..Default::default()};
+        
+        Box::leak(Box::new(raw))
+    }
+
+    fn get_id(&self) -> usize {
+        self.id
+    }
+
+    fn set_name(&mut self, name: &'static str) {
+        self.name = name
+    }
+
+    fn get_name(&self) -> &'static str {
+        self.name
+    }
+
+    fn set_indicies(&mut self) {
+        //
+    }
+
+    fn set_normales(&mut self) {
+        //
+    }
+
+    fn draw(&self) {
+        //
+    }
 }
 
 // Serealize Object Trait
@@ -124,17 +160,26 @@ impl World {
 
     }
 
+    pub fn save(&self, name: &'static str) {
+        let data = json!(self.objects);
+
+        // IF exists check?
+        let mut file = File::create(format!("{name}.json")).unwrap();
+        file.write_all(data.to_string().as_bytes()).unwrap();
+
+        // self.objects to json
+    }
+
     pub fn load(&mut self) {
         //self.object = ...
     }
 
-    pub fn save(&self) {
-        let data = json!(self.objects);
-        // Self. objects to json
+    pub fn add_object(&mut self, object: &'static dyn Object) {
+        self.objects.push(object);
     }
 
-    pub fn add_object(&mut self, object: &'static dyn Object) {
-        self.objects.push(object)
+    pub fn get_objects(&self) -> &Vec<&'static dyn Object> {
+        &self.objects
     }
 }
 
