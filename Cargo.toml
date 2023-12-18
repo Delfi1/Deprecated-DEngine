@@ -11,3 +11,4 @@ winit = "*"
 serde_json = "*"
 erased-serde = "*"
 serde = { version = "*", features = ["derive"] }
+typetag = "*"

@@ -1,3 +1,4 @@
+use erased_serde::serialize_trait_object;
 use glium::{Frame, Surface};
 use glium::{
     backend::glutin::SimpleWindowBuilder,
@@ -7,9 +8,8 @@ use glium::{
 
 extern crate serde;
 use serde::{Serialize, Deserialize};
+use typetag;
 use serde_json::json;
-use serde_json::value::Serializer;
-use erased_serde::serialize_trait_object;
 
 use winit::dpi::PhysicalSize;
 use winit::event::VirtualKeyCode;
@@ -22,18 +22,16 @@ use winit::{
     event_loop::EventLoop
 };
 
+use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
-use std::marker::PhantomData;
-use std::ptr::null;
-
 use std::f32::consts::PI;
 use std::time::Instant;
 
-use self::input::Key;
-
 #[path ="../src/input.rs"]
 mod input;
+
+use self::input::Key;
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Vec3 {
@@ -84,39 +82,67 @@ impl Camera {
     }
 }
 
-// Object Trait
+// World 
+pub struct World {
+    pub name: &'static str,
+    obejcts: Vec<Box<&'static dyn Object>>
+}
 
-pub trait Object: erased_serde::Serialize {
-    fn new(parent_world: &World, name: &'static str) -> &'static Self where Self: Sized;
+impl World {
+    pub fn new(name: &'static str) -> &'static mut Self {
+        Box::leak(Box::new(Self {name, obejcts: Vec::new()}))
+    }
 
-    fn get_id(&self) -> usize;
-    
-    fn set_name(&mut self, name: &'static str);
-    fn get_name(&self) -> &'static str;
+    pub fn add_object(&mut self, object: &'static dyn Object) {
+        self.obejcts.push(Box::new(object))
+    }
 
-    fn set_indicies(&mut self); // 
-    fn set_normales(&mut self); // 
+    pub fn save(&self) {
+        let data = json!(self.obejcts);
 
-    fn draw(&self);
+        // IF exists check?
+        let mut file = File::create(format!("{}.json", self.name)).unwrap();
+        file.write_all(data.to_string().as_bytes()).unwrap();
+    }
+
+    pub fn load(&mut self) {
+        
+    }
+
+    pub fn draw(&self, frame: &mut Frame) {
+        for obj in &self.obejcts {
+            obj.draw(frame);
+        }
+    }
 }
 
 // Objects
+#[typetag::serialize(tag = "object")]
+pub trait Object {
+    fn new(parent_world: &World, name: &'static str) -> &'static mut Self where Self: Sized;
 
-#[derive(Default, Serialize, Deserialize)]
+    fn get_id(&self) -> usize;
+
+    fn set_name(&mut self, name: &'static str);
+    fn get_name(&self) -> &str;
+
+    fn draw(&self, frame: &mut Frame);
+}
+
+#[derive(Serialize)]
 pub struct Cube {
     id: usize,
     name: &'static str,
 
-    pub position: Vec3,
-    pub rotation: Vec3,
-    pub size: Vec3
+    position: Vec3
 }
 
+#[typetag::serialize]
 impl Object for Cube {
-    fn new(parent_world: &World, name: &'static str) -> &'static Self {
-        let raw = Self {id: parent_world.objects.len(), name, ..Default::default()};
-        
-        Box::leak(Box::new(raw))
+    fn new(parent_world: &World, name: &'static str) ->  &'static mut Self where Self:Sized {
+        let id = parent_world.obejcts.len();
+
+        Box::leak(Box::new(Self {id, name, position: Vec3::default()}))
     }
 
     fn get_id(&self) -> usize {
@@ -124,65 +150,19 @@ impl Object for Cube {
     }
 
     fn set_name(&mut self, name: &'static str) {
-        self.name = name
+        self.name = name;
     }
 
-    fn get_name(&self) -> &'static str {
+    fn get_name(&self) -> &str {
         self.name
     }
 
-    fn set_indicies(&mut self) {
-        //
-    }
-
-    fn set_normales(&mut self) {
-        //
-    }
-
-    fn draw(&self) {
-        //
+    fn draw(&self, frame: &mut Frame) {
+        // Draw cube
     }
 }
 
-// Serealize Object Trait
-serialize_trait_object!(Object);
-
-pub struct World {
-    objects: Vec<&'static dyn Object>
-}
-
-impl World {
-    pub fn new() -> &'static mut Self {
-        Box::leak(Box::new( Self { objects: Vec::new() }))
-    }
-
-    fn draw(&mut self, frame: &mut Frame) {
-
-    }
-
-    pub fn save(&self, name: &'static str) {
-        let data = json!(self.objects);
-
-        // IF exists check?
-        let mut file = File::create(format!("{name}.json")).unwrap();
-        file.write_all(data.to_string().as_bytes()).unwrap();
-
-        // self.objects to json
-    }
-
-    pub fn load(&mut self) {
-        //self.object = ...
-    }
-
-    pub fn add_object(&mut self, object: &'static dyn Object) {
-        self.objects.push(object);
-    }
-
-    pub fn get_objects(&self) -> &Vec<&'static dyn Object> {
-        &self.objects
-    }
-}
-
+// Engine Settings
 pub struct Settings {
     title: &'static str,
 
