@@ -1,15 +1,14 @@
-use erased_serde::serialize_trait_object;
-use glium::{Frame, Surface};
+use glium::glutin::surface::WindowSurface;
+use glium::index::NoIndices;
+// Open GL Wrapper
+use glium::{Frame, Surface, program};
 use glium::{
     backend::glutin::SimpleWindowBuilder,
     uniforms::AsUniformValue
 };
-// Open GL Wrapper
 
-extern crate serde;
+extern crate typetag;
 use serde::{Serialize, Deserialize};
-use typetag;
-use serde_json::json;
 
 use winit::dpi::PhysicalSize;
 use winit::event::VirtualKeyCode;
@@ -30,8 +29,14 @@ use std::time::Instant;
 
 #[path ="../src/input.rs"]
 mod input;
-
 use self::input::Key;
+
+#[derive(Copy, Clone)]
+pub struct Vertex {
+    position: (f32, f32, f32)
+}
+
+glium::implement_vertex!(Vertex, position);
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Vec3 {
@@ -41,15 +46,15 @@ pub struct Vec3 {
 }
 
 impl Vec3 {
-    fn new(x: f32, y: f32, z: f32) -> Self {
+    pub fn new(x: f32, y: f32, z: f32) -> Self {
         Self {x, y, z}
     }
 
-    fn get(&self) -> [f32; 3] {
+    pub fn get(&self) -> [f32; 3] {
         [self.x, self.y, self.z]
     }
 
-    fn from(&mut self, vector: [f32; 3]) -> Self {
+    pub fn from(&mut self, vector: [f32; 3]) -> Self {
         Self {x: vector[0], y: vector[1], z: vector[2]}
     }
 }
@@ -80,85 +85,124 @@ impl Camera {
     pub fn get_fov(&self) -> f32 {
         self.fov
     }
+
+    pub fn get_perspective(&self, frame: &Frame) -> [[f32; 4]; 4] {
+        let aspect_ratio = frame.get_dimensions().0 as f32 / frame.get_dimensions().1 as f32;
+
+        let fov = self.fov;
+        let zfar = 1024.0;
+        let znear = 0.1;
+
+        let f = 1.0 / (fov / 2.0).tan();
+
+        // note: remember that this is column-major, so the lines of code are actually columns
+        [
+            [  f / aspect_ratio   ,   0.0,               0.0              ,   0.0],
+            [         0.0         ,     f ,              0.0              ,   0.0],
+            [         0.0         ,    0.0,  (zfar+znear)/(zfar-znear)    ,   1.0],
+            [         0.0         ,    0.0, -(2.0*zfar*znear)/(zfar-znear),   0.0],
+        ]
+    }
 }
 
 // World 
+#[derive(Default)]
 pub struct World {
     pub name: &'static str,
-    obejcts: Vec<Box<&'static dyn Object>>
+    obejcts: Vec<&'static dyn Object>,
+
+    ambient_color: (f32, f32, f32, f32)
 }
 
 impl World {
     pub fn new(name: &'static str) -> &'static mut Self {
-        Box::leak(Box::new(Self {name, obejcts: Vec::new()}))
+        Box::leak(Box::new(Self {name, ..Default::default()}))
     }
 
-    pub fn add_object(&mut self, object: &'static dyn Object) {
-        self.obejcts.push(Box::new(object))
-    }
-
-    pub fn save(&self) {
-        let data = json!(self.obejcts);
-
-        // IF exists check?
-        let mut file = File::create(format!("{}.json", self.name)).unwrap();
-        file.write_all(data.to_string().as_bytes()).unwrap();
-    }
-
-    pub fn load(&mut self) {
+    fn draw_axis(&self, frame: &mut Frame, camera: &Camera, display: &glium::Display<WindowSurface>) {
+        let perspective = camera.get_perspective(frame);
         
+        let vertex_buffer = glium::VertexBuffer::new(display, &[
+            Vertex {position: (0.0, 0.0, 0.0)},
+            Vertex {position: (0.0, 0.0, 0.0)}
+        ]).unwrap();
+
+        //
+
+        //frame.draw(vertex_buffer, NoIndices, , );
     }
 
-    pub fn draw(&self, frame: &mut Frame) {
+    // Draw all objects
+    fn draw_objects(&self, camera: &Camera, frame: &mut Frame) {
         for obj in &self.obejcts {
-            obj.draw(frame);
+            obj.draw(camera, frame);
         }
+    }
+
+
+    // Adding Objects 
+    fn add_object(&mut self, object: &'static dyn Object) {
+        self.obejcts.push(object)
+    }
+
+    pub fn get_objects(&mut self) -> &Vec<&'static dyn Object> {
+        &self.obejcts
+    }
+
+    pub fn add_cube(&mut self, name: &'static str, position: Vec3, rotation: Vec3, size: Vec3) {
+        let cube = Cube::new(name);
+        cube.position = position;
+        cube.rotation = rotation;
+        cube.size = size;
+
+        self.add_object(cube)
+    }
+
+    // Clear Screen
+    fn clear(&self, frame: &mut Frame) {
+        let color = self.ambient_color;
+        frame.clear_color(color.0, color.1, color.2, color.3)
     }
 }
 
 // Objects
-#[typetag::serialize(tag = "object")]
+
 pub trait Object {
-    fn new(parent_world: &World, name: &'static str) -> &'static mut Self where Self: Sized;
+    fn new(name: &'static str) -> &'static mut Self where Self: Sized;
 
     fn get_id(&self) -> usize;
 
-    fn set_name(&mut self, name: &'static str);
-    fn get_name(&self) -> &str;
-
-    fn draw(&self, frame: &mut Frame);
+    fn draw(&self, camera: &Camera, frame: &mut Frame);
 }
 
-#[derive(Serialize)]
+#[derive(Default)]
 pub struct Cube {
     id: usize,
     name: &'static str,
 
-    position: Vec3
+    pub position: Vec3,
+    pub rotation: Vec3,
+    pub size: Vec3
 }
 
-#[typetag::serialize]
-impl Object for Cube {
-    fn new(parent_world: &World, name: &'static str) ->  &'static mut Self where Self:Sized {
-        let id = parent_world.obejcts.len();
+const CUBE_VERT: [Vertex; 1] = [
+    Vertex {position: (0.0, 0.0, 0.0)},
+    
+];
 
-        Box::leak(Box::new(Self {id, name, position: Vec3::default()}))
+impl Object for Cube {
+    fn new(name: &'static str) -> &'static mut Self where Self: Sized {
+        Box::leak(Box::new(Self {name, ..Default::default()}))
     }
 
     fn get_id(&self) -> usize {
         self.id
     }
 
-    fn set_name(&mut self, name: &'static str) {
-        self.name = name;
-    }
+    fn draw(&self, camera: &Camera, frame: &mut Frame) {
+        //print!("Drawing {} ", self.name)
+        let perspective = camera.get_perspective(frame);
 
-    fn get_name(&self) -> &str {
-        self.name
-    }
-
-    fn draw(&self, frame: &mut Frame) {
-        // Draw cube
     }
 }
 
@@ -257,10 +301,25 @@ impl Engine {
                 Event::RedrawRequested(_) => {
                     // Создание кадра
                     let mut frame = display.draw();
-                    frame.clear_color(1.0, 1.0, 1.0, 1.0);
+
+                    // Clear screen
+                    if self.world.is_some() {
+                        self.world.as_mut().unwrap().clear(&mut frame);
+
+                        // Draw Axis
+                        self.world.as_mut().unwrap().draw_axis(&mut frame, &self.camera, &display);
+                    } else {
+                        frame.clear_color(0.0, 0.0, 0.0, 1.0);
+                    }
+
+                    // GUI?
 
                     if self.world.is_some() {
-                        self.world.as_mut().unwrap().draw(&mut frame);
+                        let start_drawing = Instant:: now();
+                        self.world.as_mut().unwrap().draw_objects(&self.camera, &mut frame);
+
+                        let draw_time = Instant::now().duration_since(start_drawing).as_secs_f64();
+                        println!("World drawing time: {}", draw_time)
                     }
                     // Завершение отрисовки кадра.
                     frame.finish().unwrap();

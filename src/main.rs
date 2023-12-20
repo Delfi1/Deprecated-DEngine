@@ -1,20 +1,17 @@
 mod engine;
-use engine::{Engine, World, Object, Cube};
+use engine::{Engine, World, Vec3};
 
 fn main() {
     let engine = Engine::new();
 
     let main_world = World::new("Test World");
+    
+    let x = 10000;
 
-    for i in 1..11 {
-        let name = Box::leak(format!("Cube{}", i).into_boxed_str());
-        let cube = Cube::new(&main_world, name);
-        main_world.add_object(cube);
+    for i in 1..x+1 {
+        main_world.add_cube( Box::leak(format!("Cube{}", i).into_boxed_str()), Vec3::new(i as f32, 0.0, 0.0), Vec3::default(), Vec3::default());
     }
 
-    main_world.save();
-
     engine.set_world(Some(main_world));
-
     engine.run();
 }
