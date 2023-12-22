@@ -1,11 +1,8 @@
+use glium::DrawParameters;
+// Open GL Wrapper
 use glium::glutin::surface::WindowSurface;
 use glium::index::NoIndices;
-// Open GL Wrapper
-use glium::{Frame, Surface, program};
-use glium::{
-    backend::glutin::SimpleWindowBuilder,
-    uniforms::AsUniformValue
-};
+use glium::{Frame, Surface, Display, backend::glutin::SimpleWindowBuilder, uniform};
 
 extern crate typetag;
 use serde::{Serialize, Deserialize};
@@ -29,14 +26,18 @@ use std::time::Instant;
 
 #[path ="../src/input.rs"]
 mod input;
-use self::input::Key;
+use input::Key;
+
+#[path ="../src/teapot.rs"]
+mod teapot;
 
 #[derive(Copy, Clone)]
 pub struct Vertex {
-    position: (f32, f32, f32)
+    position: (f32, f32, f32),
+    normal: (f32, f32, f32)
 }
 
-glium::implement_vertex!(Vertex, position);
+glium::implement_vertex!(Vertex, position, normal);
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Vec3 {
@@ -50,20 +51,28 @@ impl Vec3 {
         Self {x, y, z}
     }
 
-    pub fn get(&self) -> [f32; 3] {
+    pub fn get_tuple(&self) -> (f32, f32, f32) {
+        (self.x, self.y, self.z)
+    }
+
+    pub fn get_matrix(&self) -> [f32; 3] {
         [self.x, self.y, self.z]
     }
 
-    pub fn from(&mut self, vector: [f32; 3]) -> Self {
+    pub fn from(vector: [f32; 3]) -> Self {
         Self {x: vector[0], y: vector[1], z: vector[2]}
     }
 }
 
 pub struct Camera {
     pub position: Vec3,
-    direction: Vec3,
+    pub direction: Vec3,
 
     fov: f32
+}
+
+pub fn radians(x: f32) -> f32 {
+    x * PI / 180.0
 }
 
 impl Camera {
@@ -78,8 +87,7 @@ impl Camera {
 
     // Degrees -> Radians
     pub fn set_fov(&mut self, degrees: f32) {
-        let radians = degrees * PI / 180.0;
-        self.fov = radians;
+        self.fov = radians(degrees);
     }
 
     pub fn get_fov(&self) -> f32 {
@@ -95,12 +103,49 @@ impl Camera {
 
         let f = 1.0 / (fov / 2.0).tan();
 
-        // note: remember that this is column-major, so the lines of code are actually columns
         [
             [  f / aspect_ratio   ,   0.0,               0.0              ,   0.0],
             [         0.0         ,     f ,              0.0              ,   0.0],
             [         0.0         ,    0.0,  (zfar+znear)/(zfar-znear)    ,   1.0],
             [         0.0         ,    0.0, -(2.0*zfar*znear)/(zfar-znear),   0.0],
+        ]
+    }
+
+    pub fn get_view(&self) -> [[f32; 4]; 4] {
+        let f = {
+            let d = self.direction.get_tuple();
+            let len = d.0 * d.0 + d.1 * d.1 + d.2 * d.2;
+            let len = len.sqrt();
+            (d.0 / len, d.1 / len, d.2 / len)
+        };
+
+        let up = (0.0, 1.0, 0.0);
+
+        let s = (f.1 * up.2 - f.2 * up.1,
+                 f.2 * up.0 - f.0 * up.2,
+                 f.0 * up.1 - f.1 * up.0);
+
+        let s_norm = {
+            let len = s.0 * s.0 + s.1 * s.1 + s.2 * s.2;
+            let len = len.sqrt();
+            (s.0 / len, s.1 / len, s.2 / len)
+        };
+
+        let u = (s_norm.1 * f.2 - s_norm.2 * f.1,
+                 s_norm.2 * f.0 - s_norm.0 * f.2,
+                 s_norm.0 * f.1 - s_norm.1 * f.0);
+
+        let position = self.position.get_tuple();
+        
+        let p = (-position.0 * s.0 - position.1 * s.1 - position.2 * s.2,
+                 -position.0 * u.0 - position.1 * u.1 - position.2 * u.2,
+                 -position.0 * f.0 - position.1 * f.1 - position.2 * f.2);
+
+        [
+            [s_norm.0, u.0, f.0, 0.0],
+            [s_norm.1, u.1, f.1, 0.0],
+            [s_norm.2, u.2, f.2, 0.0],
+            [p.0, p.1,  p.2, 1.0],
         ]
     }
 }
@@ -109,100 +154,189 @@ impl Camera {
 #[derive(Default)]
 pub struct World {
     pub name: &'static str,
-    obejcts: Vec<&'static dyn Object>,
+    objects: Vec<&'static mut dyn Object>,
+    global_light: Vec3,
 
     ambient_color: (f32, f32, f32, f32)
 }
 
 impl World {
     pub fn new(name: &'static str) -> &'static mut Self {
-        Box::leak(Box::new(Self {name, ..Default::default()}))
+        let global_light = Vec3::new(-1.0, 0.4, 0.9);
+        Box::leak(Box::new(Self {name, global_light, ..Default::default()}))
     }
 
     fn draw_axis(&self, frame: &mut Frame, camera: &Camera, display: &glium::Display<WindowSurface>) {
         let perspective = camera.get_perspective(frame);
-        
-        let vertex_buffer = glium::VertexBuffer::new(display, &[
-            Vertex {position: (0.0, 0.0, 0.0)},
-            Vertex {position: (0.0, 0.0, 0.0)}
-        ]).unwrap();
 
-        //
-
-        //frame.draw(vertex_buffer, NoIndices, , );
     }
 
-    // Draw all objects
-    fn draw_objects(&self, camera: &Camera, frame: &mut Frame) {
-        for obj in &self.obejcts {
-            obj.draw(camera, frame);
+    fn compile_shaders(&mut self, display: &glium::Display<WindowSurface>) {
+        for obj in self.objects.as_mut_slice() {
+            if obj.get_program().is_none() {
+                obj.compile_shader(display);
+            }
         }
     }
 
+    // Draw all objects
+    fn draw_objects(&mut self, camera: &Camera, frame: &mut Frame, draw_parameters: &DrawParameters<'_>, display: &Display<WindowSurface>) {
+        for obj in &self.objects {
+            obj.draw(&self, camera, frame, draw_parameters, display);
+        }
+    }
 
     // Adding Objects 
-    fn add_object(&mut self, object: &'static dyn Object) {
-        self.obejcts.push(object)
+    pub fn add_object(&mut self, object: &'static mut dyn Object) {
+        self.objects.push(object)
     }
 
-    pub fn get_objects(&mut self) -> &Vec<&'static dyn Object> {
-        &self.obejcts
-    }
-
-    pub fn add_cube(&mut self, name: &'static str, position: Vec3, rotation: Vec3, size: Vec3) {
-        let cube = Cube::new(name);
-        cube.position = position;
-        cube.rotation = rotation;
-        cube.size = size;
-
-        self.add_object(cube)
+    pub fn get_objects(&mut self) -> &Vec<&'static mut dyn Object> {
+        &self.objects
     }
 
     // Clear Screen
     fn clear(&self, frame: &mut Frame) {
         let color = self.ambient_color;
-        frame.clear_color(color.0, color.1, color.2, color.3)
+        frame.clear_color_and_depth((color.0, color.1, color.2, color.3), 1.0)
     }
 }
 
 // Objects
-
 pub trait Object {
     fn new(name: &'static str) -> &'static mut Self where Self: Sized;
 
-    fn get_id(&self) -> usize;
+    fn get_program(&self) -> &Option<glium::Program>;
+    fn compile_shader(&mut self, display: &Display<WindowSurface>);
 
-    fn draw(&self, camera: &Camera, frame: &mut Frame);
+    fn draw(&self, parent_world: &World, camera: &Camera, frame: &mut Frame, draw_parameters: &DrawParameters<'_>, display: &Display<WindowSurface>);
 }
 
+const TEST_VS: &str = r#"
+    #version 150
+
+    in vec3 position;
+    in vec3 normal;
+
+    out vec3 v_normal;
+
+    uniform mat4 perspective;
+    uniform mat4 view;
+    uniform mat4 model;
+    uniform vec3 global_position;
+
+    void main() {
+        mat4 modelview = view * model;
+        
+        vec3 render_position = position + global_position;
+        v_normal = transpose(inverse(mat3(modelview))) * normal;
+        gl_Position = perspective * modelview * vec4(render_position, 1.0);
+    }
+"#;
+
+const TEST_FS: &str = r#"
+    #version 150
+
+    in vec3 v_normal;
+    out vec4 color;
+    uniform vec3 light;
+
+    void main() {
+        float brightness = dot(normalize(v_normal), normalize(light));
+        vec3 dark_color = vec3(0.6, 0.0, 0.0);
+        vec3 regular_color = vec3(1.0, 0.0, 0.0);
+        color = vec4(mix(dark_color, regular_color, brightness), 1.0);
+    }
+"#;
+
 #[derive(Default)]
-pub struct Cube {
-    id: usize,
+pub struct Cuboid {
     name: &'static str,
+    program: Option<glium::Program>,
 
     pub position: Vec3,
     pub rotation: Vec3,
     pub size: Vec3
 }
 
-const CUBE_VERT: [Vertex; 1] = [
-    Vertex {position: (0.0, 0.0, 0.0)},
-    
-];
-
-impl Object for Cube {
+impl Object for Cuboid {
     fn new(name: &'static str) -> &'static mut Self where Self: Sized {
         Box::leak(Box::new(Self {name, ..Default::default()}))
     }
 
-    fn get_id(&self) -> usize {
-        self.id
+    fn compile_shader(&mut self, display: &Display<WindowSurface>) {
+        self.program = Some(glium::Program::from_source(display, TEST_VS, TEST_FS, None).unwrap())
     }
 
-    fn draw(&self, camera: &Camera, frame: &mut Frame) {
+    fn get_program(&self) -> &Option<glium::Program> {
+        &self.program
+    }
+
+    fn draw(&self, parent_world: &World, camera: &Camera, frame: &mut Frame, draw_parameters: &DrawParameters<'_>, display: &Display<WindowSurface>) {
         //print!("Drawing {} ", self.name)
         let perspective = camera.get_perspective(frame);
+        let view = camera.get_view();
 
+        let model = [
+            [0.01, 0.0, 0.0, 0.0],
+            [0.0, 0.01, 0.0, 0.0],
+            [0.0, 0.0, 0.01, 0.0],
+            [0.0, 0.0, 0.0, 1.0f32]
+        ];
+
+        if self.program.is_some() {
+            //frame.draw(_, _, &self.program.as_ref().unwrap(), uniforms, draw_parameters)
+        };
+    }
+}
+
+#[derive(Default)]
+pub struct Teapot {
+    name: &'static str,
+    program: Option<glium::Program>,
+
+    pub position: Vec3,
+    pub rotation: Vec3,
+    pub scale: Vec3
+}
+
+impl Object for Teapot {
+    fn new(name: &'static str) -> &'static mut Self where Self: Sized {
+        let scale = Vec3::new(1.0, 1.0, 1.0);
+        Box::leak(Box::new(Self {name, scale, ..Default::default()}))
+    }
+
+    fn get_program(&self) -> &Option<glium::Program> {
+        &self.program
+    }
+
+    fn compile_shader(&mut self, display: &Display<WindowSurface>) {
+        self.program = Some(glium::Program::from_source(display, TEST_VS, TEST_FS, None).unwrap())
+    }
+
+    fn draw(&self, parent_world: &World, camera: &Camera, frame: &mut Frame, draw_parameters: &DrawParameters<'_>, display: &Display<WindowSurface>) {
+        //println!("self pos {:?}", self.position.get_tuple());
+        let perspective = camera.get_perspective(frame);
+        let view = camera.get_view();
+
+        let positions = glium::VertexBuffer::new(display, &teapot::VERTICES).unwrap();
+        let normals = glium::VertexBuffer::new(display, &teapot::NORMALS).unwrap();
+        let indices = glium::IndexBuffer::new(display, glium::index::PrimitiveType::TrianglesList,
+                                            &teapot::INDICES).unwrap();
+
+        let model = [
+            [0.01, 0.0, 0.0, 0.0],
+            [0.0, 0.01, 0.0, 0.0],
+            [0.0, 0.0, 0.01, 0.0],
+            [0.0, 0.0, 2.0, 1.0f32]
+        ];
+
+        if self.program.is_some() {
+            //println!("Drawing {} ", self.name);
+            frame.draw((&positions, &normals), &indices, &self.program.as_ref().unwrap(),
+            &uniform! { model: model, global_position: self.position.get_matrix(), view: view, perspective: perspective, light: parent_world.global_light.get_matrix() },
+            draw_parameters).unwrap();
+        };
     }
 }
 
@@ -227,7 +361,7 @@ impl Default for Settings {
         let window_size = PhysicalSize::new(700, 500);
         let min_window_size = PhysicalSize::new(350, 250);
 
-        Self {title: "DEngine", window_size, min_window_size, max_fps: 120 }
+        Self {title: "DEngine", window_size, min_window_size, max_fps: 1200 }
     }
 }
 
@@ -275,6 +409,16 @@ impl Engine {
 
         let f11_key = Key::new(0.3, VirtualKeyCode::F11);
 
+        let params = glium::DrawParameters {
+            depth: glium::Depth {
+                test: glium::draw_parameters::DepthTest::IfLess,
+                write: true,
+                .. Default::default()
+            },
+            //backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
+            .. Default::default()
+        };
+
         event_loop.run(move |event, _, control_flow| {
             control_flow.set_wait();
             control_flow.set_poll();
@@ -302,6 +446,8 @@ impl Engine {
                     // Создание кадра
                     let mut frame = display.draw();
 
+                    self.camera.direction.x += radians(1.0);
+
                     // Clear screen
                     if self.world.is_some() {
                         self.world.as_mut().unwrap().clear(&mut frame);
@@ -314,13 +460,16 @@ impl Engine {
 
                     // GUI?
 
+                    // Draw world objects
                     if self.world.is_some() {
                         let start_drawing = Instant:: now();
-                        self.world.as_mut().unwrap().draw_objects(&self.camera, &mut frame);
+                        self.world.as_mut().unwrap().compile_shaders(&display);
+                        self.world.as_mut().unwrap().draw_objects(&self.camera, &mut frame, &params, &display);
 
                         let draw_time = Instant::now().duration_since(start_drawing).as_secs_f64();
                         println!("World drawing time: {}", draw_time)
                     }
+
                     // Завершение отрисовки кадра.
                     frame.finish().unwrap();
                 }

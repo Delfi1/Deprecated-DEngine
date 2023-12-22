@@ -1,15 +1,20 @@
 mod engine;
-use engine::{Engine, World, Vec3};
+use engine::{Engine, Cuboid, World, Vec3, Object, Teapot, radians};
 
 fn main() {
     let engine = Engine::new();
 
-    let main_world = World::new("Test World");
-    
-    let x = 10000;
+    engine.camera.set_fov(80.0);
+    engine.camera.position = Vec3::new(2.0, 1.0, 1.0);
+    engine.camera.direction = Vec3::new(radians(10.0), radians(-200.0), radians(180.0));
 
+    let main_world = World::new("Test World");
+
+    let x = 10;
     for i in 1..x+1 {
-        main_world.add_cube( Box::leak(format!("Cube{}", i).into_boxed_str()), Vec3::new(i as f32, 0.0, 0.0), Vec3::default(), Vec3::default());
+        let teapot = Teapot::new(Box::leak(format!("Teapot{}", i).into_boxed_str()));
+        teapot.position = Vec3::new((i * 150) as f32, 0.0, 0.0);
+        main_world.add_object(teapot);
     }
 
     engine.set_world(Some(main_world));
