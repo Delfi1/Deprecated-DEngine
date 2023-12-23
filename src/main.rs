@@ -10,11 +10,13 @@ fn main() {
 
     let main_world = World::new("Test World");
 
-    let x = 10;
-    for i in 1..x+1 {
-        let teapot = Teapot::new(Box::leak(format!("Teapot{}", i).into_boxed_str()));
-        teapot.position = Vec3::new((i * 150) as f32, 0.0, 0.0);
-        main_world.add_object(teapot);
+    let a = 10;
+    for x in 1..a+1 {
+        for z in 1..a+1 {
+            let teapot = Teapot::new(Box::leak(format!("Teapot{}", x+x*z).into_boxed_str()));
+            teapot.position = Vec3::new((x * 150) as f32, 0.0, (z * 100) as f32);
+            main_world.add_object(teapot);
+        }
     }
 
     engine.set_world(Some(main_world));

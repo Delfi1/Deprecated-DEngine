@@ -22,6 +22,7 @@ use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
 use std::f32::consts::PI;
+use std::process::Output;
 use std::time::Instant;
 
 #[path ="../src/input.rs"]
@@ -59,8 +60,44 @@ impl Vec3 {
         [self.x, self.y, self.z]
     }
 
-    pub fn from(vector: [f32; 3]) -> Self {
-        Self {x: vector[0], y: vector[1], z: vector[2]}
+    pub fn from_matrix(matrix: [f32; 3]) -> Self {
+        Self {x: matrix[0], y: matrix[1], z: matrix[2]}
+    }
+
+    pub fn mul_f32(&self, a: f32) -> Self {
+        let x = self.x * a;
+        let y = self.y * a;
+        let z = self.z * a;
+
+        Self {x, y, z}
+    }
+
+    pub fn sin(&self) -> Self {
+        let x = self.x.sin();
+        let y = self.y.sin();
+        let z = self.z.sin();
+
+        Self { x, y, z }
+    }
+}
+
+impl std::ops::Mul for Vec3 {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        let x = self.x * rhs.x;
+        let y = self.y * rhs.y;
+        let z = self.z * rhs.z;
+
+        Self {x, y, z}
+    }
+}
+
+impl std::ops::AddAssign for Vec3 {
+    fn add_assign(&mut self, rhs: Self) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+        self.z += rhs.z;   
     }
 }
 
@@ -68,7 +105,8 @@ pub struct Camera {
     pub position: Vec3,
     pub direction: Vec3,
 
-    fov: f32
+    fov: f32,
+    speed: f32
 }
 
 pub fn radians(x: f32) -> f32 {
@@ -81,8 +119,9 @@ impl Camera {
         let direction = Vec3::default();
 
         let fov = 60.0 * PI / 180.0;
+        let speed = 1.0/100.0;
 
-        Self {position, direction, fov}
+        Self {position, direction, fov, speed}
     }
 
     // Degrees -> Radians
@@ -98,7 +137,7 @@ impl Camera {
         let aspect_ratio = frame.get_dimensions().0 as f32 / frame.get_dimensions().1 as f32;
 
         let fov = self.fov;
-        let zfar = 1024.0;
+        let zfar = 64.0;
         let znear = 0.1;
 
         let f = 1.0 / (fov / 2.0).tan();
@@ -171,18 +210,10 @@ impl World {
 
     }
 
-    fn compile_shaders(&mut self, display: &glium::Display<WindowSurface>) {
-        for obj in self.objects.as_mut_slice() {
-            if obj.get_program().is_none() {
-                obj.compile_shader(display);
-            }
-        }
-    }
-
     // Draw all objects
-    fn draw_objects(&mut self, camera: &Camera, frame: &mut Frame, draw_parameters: &DrawParameters<'_>, display: &Display<WindowSurface>) {
+    fn draw_objects(&mut self, camera: &Camera, frame: &mut Frame, program: &glium::Program, draw_parameters: &DrawParameters<'_>, display: &Display<WindowSurface>) {
         for obj in &self.objects {
-            obj.draw(&self, camera, frame, draw_parameters, display);
+            obj.draw(&self, camera, frame, program, draw_parameters, display);
         }
     }
 
@@ -206,10 +237,7 @@ impl World {
 pub trait Object {
     fn new(name: &'static str) -> &'static mut Self where Self: Sized;
 
-    fn get_program(&self) -> &Option<glium::Program>;
-    fn compile_shader(&mut self, display: &Display<WindowSurface>);
-
-    fn draw(&self, parent_world: &World, camera: &Camera, frame: &mut Frame, draw_parameters: &DrawParameters<'_>, display: &Display<WindowSurface>);
+    fn draw(&self, parent_world: &World, camera: &Camera, frame: &mut Frame, program: &glium::Program, draw_parameters: &DrawParameters<'_>, display: &Display<WindowSurface>);
 }
 
 const TEST_VS: &str = r#"
@@ -264,15 +292,7 @@ impl Object for Cuboid {
         Box::leak(Box::new(Self {name, ..Default::default()}))
     }
 
-    fn compile_shader(&mut self, display: &Display<WindowSurface>) {
-        self.program = Some(glium::Program::from_source(display, TEST_VS, TEST_FS, None).unwrap())
-    }
-
-    fn get_program(&self) -> &Option<glium::Program> {
-        &self.program
-    }
-
-    fn draw(&self, parent_world: &World, camera: &Camera, frame: &mut Frame, draw_parameters: &DrawParameters<'_>, display: &Display<WindowSurface>) {
+    fn draw(&self, parent_world: &World, camera: &Camera, frame: &mut Frame, program: &glium::Program, draw_parameters: &DrawParameters<'_>, display: &Display<WindowSurface>) {
         //print!("Drawing {} ", self.name)
         let perspective = camera.get_perspective(frame);
         let view = camera.get_view();
@@ -293,7 +313,6 @@ impl Object for Cuboid {
 #[derive(Default)]
 pub struct Teapot {
     name: &'static str,
-    program: Option<glium::Program>,
 
     pub position: Vec3,
     pub rotation: Vec3,
@@ -306,15 +325,7 @@ impl Object for Teapot {
         Box::leak(Box::new(Self {name, scale, ..Default::default()}))
     }
 
-    fn get_program(&self) -> &Option<glium::Program> {
-        &self.program
-    }
-
-    fn compile_shader(&mut self, display: &Display<WindowSurface>) {
-        self.program = Some(glium::Program::from_source(display, TEST_VS, TEST_FS, None).unwrap())
-    }
-
-    fn draw(&self, parent_world: &World, camera: &Camera, frame: &mut Frame, draw_parameters: &DrawParameters<'_>, display: &Display<WindowSurface>) {
+    fn draw(&self, parent_world: &World, camera: &Camera, frame: &mut Frame, program: &glium::Program, draw_parameters: &DrawParameters<'_>, display: &Display<WindowSurface>) {
         //println!("self pos {:?}", self.position.get_tuple());
         let perspective = camera.get_perspective(frame);
         let view = camera.get_view();
@@ -331,12 +342,10 @@ impl Object for Teapot {
             [0.0, 0.0, 2.0, 1.0f32]
         ];
 
-        if self.program.is_some() {
-            //println!("Drawing {} ", self.name);
-            frame.draw((&positions, &normals), &indices, &self.program.as_ref().unwrap(),
-            &uniform! { model: model, global_position: self.position.get_matrix(), view: view, perspective: perspective, light: parent_world.global_light.get_matrix() },
-            draw_parameters).unwrap();
-        };
+        //println!("Drawing {} ", self.name);
+        frame.draw((&positions, &normals), &indices, program,
+        &uniform! { model: model, global_position: self.position.get_matrix(), view: view, perspective: perspective, light: parent_world.global_light.get_matrix() },
+        draw_parameters).unwrap();
     }
 }
 
@@ -408,6 +417,7 @@ impl Engine {
         window.set_min_inner_size(Some(self.settings.min_window_size));
 
         let f11_key = Key::new(0.3, VirtualKeyCode::F11);
+        let w_key = Key::new(0.01, VirtualKeyCode::W);
 
         let params = glium::DrawParameters {
             depth: glium::Depth {
@@ -415,9 +425,11 @@ impl Engine {
                 write: true,
                 .. Default::default()
             },
-            //backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
+            backface_culling: glium::draw_parameters::BackfaceCullingMode::CullClockwise,
             .. Default::default()
         };
+
+        let program = glium::Program::from_source(&display, TEST_VS, TEST_FS, None).unwrap();
 
         event_loop.run(move |event, _, control_flow| {
             control_flow.set_wait();
@@ -434,6 +446,12 @@ impl Engine {
                 }
             }
 
+            if w_key.is_pressed(&event) {
+                //println!("{:?}", self.camera.direction.get_tuple());
+                //println!("{:?}", self.camera.direction.sin().get_tuple());
+                //self.camera.position += self.camera.direction.sin().mul_f32(self.camera.speed);
+            }
+
             match event {
                 Event::WindowEvent {
                     event: WindowEvent::CloseRequested,
@@ -446,7 +464,7 @@ impl Engine {
                     // Создание кадра
                     let mut frame = display.draw();
 
-                    self.camera.direction.x += radians(1.0);
+                    self.camera.direction.x += radians(10.0);
 
                     // Clear screen
                     if self.world.is_some() {
@@ -463,11 +481,10 @@ impl Engine {
                     // Draw world objects
                     if self.world.is_some() {
                         let start_drawing = Instant:: now();
-                        self.world.as_mut().unwrap().compile_shaders(&display);
-                        self.world.as_mut().unwrap().draw_objects(&self.camera, &mut frame, &params, &display);
+                        self.world.as_mut().unwrap().draw_objects(&self.camera, &mut frame, &program, &params, &display);
 
-                        let draw_time = Instant::now().duration_since(start_drawing).as_secs_f64();
-                        println!("World drawing time: {}", draw_time)
+                        let draw_time = Instant::now().duration_since(start_drawing).as_nanos() as u32;
+                        println!("World drawing time: {}", self.get_fps(draw_time));
                     }
 
                     // Завершение отрисовки кадра.
@@ -478,14 +495,15 @@ impl Engine {
 
             match *control_flow {
                 ControlFlow::Exit => (),
-                _ => {
+                ControlFlow::Poll => {
                     window.request_redraw(); // Запрос на отрисовку.
                     
                     let delta = self.get_delta_time(start_time);
-                    
+                    //println!("delta: {}", delta);
                     let new_inst = start_time + std::time::Duration::from_nanos(delta as u64);
                     *control_flow = ControlFlow::WaitUntil(new_inst); // Ожидание в наносекундах.
                 }
+                _ => ()
             }
         });
     }
